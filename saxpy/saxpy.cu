@@ -109,7 +109,7 @@ printCudaInfo() {
 
     printf("---------------------------------------------------------\n");
     printf("Found %d CUDA devices\n", deviceCount);
-    int i = 0;
+
     for (int i=0; i<deviceCount; i++) {
         cudaDeviceProp deviceProps;
         cudaGetDeviceProperties(&deviceProps, i);

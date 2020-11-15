@@ -26,7 +26,7 @@ int main(int argc, char** argv)
 
     int N = 20 * 1000 * 1000;
 
-    ///cl compiler can recognize getopt.h
+    ///cl compiler can't recognize getopt.h
     // parse commandline options ////////////////////////////////////////////
     // int opt;
     // static struct option long_options[] = {
