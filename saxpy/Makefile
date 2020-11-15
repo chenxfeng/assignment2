@@ -9,40 +9,38 @@ CC_FILES   := main.cpp
 
 ###########################################################
 
-ARCH=$(shell uname | sed -e 's/-.*//g')
+# ARCH=$(shell uname | sed -e 's/-.*//g')
 
+# nvcc compiler in fact call the VisualStudio's cl compiler
 OBJDIR=objs
-CXX=g++ -m64
-CXXFLAGS=-O3 -Wall
-ifeq ($(ARCH), Darwin)
-# Building on mac
-LDFLAGS=-L/usr/local/depot/cuda-8.0/lib/ -lcudart
-else
-# Building on Linux
-LDFLAGS=-L/usr/local/depot/cuda-8.0/lib64/ -lcudart
-endif
-NVCC=nvcc
+CXX=nvcc -m64
+CXXFLAGS=-O3
+LDFLAGS=-L"D://Program Files (x86)//NVIDIA GPU Computing//lib//x64" -lcudart
+NVCC=nvcc -w
 NVCCFLAGS=-O3 -m64 --gpu-architecture compute_35
 
 
-OBJS=$(OBJDIR)/main.o  $(OBJDIR)/saxpy.o
+OBJS=$(OBJDIR)/main.obj  $(OBJDIR)/saxpy.obj
 
 
 .PHONY: dirs clean
 
 default: $(EXECUTABLE)
 
+# mkdir -p $(OBJDIR)/
 dirs:
-		mkdir -p $(OBJDIR)/
+		mkdir $(OBJDIR)
 
+#rm -rf $(OBJDIR) *.ppm *~ $(EXECUTABLE)
 clean:
-		rm -rf $(OBJDIR) *.ppm *~ $(EXECUTABLE)
+		del /Q *.ppm $(EXECUTABLE).exe
+		rmdir /Q /S $(OBJDIR)
 
 $(EXECUTABLE): dirs $(OBJS)
 		$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
-$(OBJDIR)/%.o: %.cpp
+$(OBJDIR)/%.obj: %.cpp
 		$(CXX) $< $(CXXFLAGS) -c -o $@
 
-$(OBJDIR)/%.o: %.cu
+$(OBJDIR)/%.obj: %.cu
 		$(NVCC) $< $(NVCCFLAGS) -c -o $@
