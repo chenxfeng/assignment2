@@ -191,7 +191,7 @@ int find_repeats(int *device_input, int length, int *device_output) {
     find_repeats_kernel<<<blocks, threadsPerBlock>>>(device_input, length, device_output, counter);
     int c;
     cudaMemcpy(&c, counter, sizeof(int), cudaMemcpyDeviceToHost);
-
+    cudaFree(counter);
     return c;
 }
 
