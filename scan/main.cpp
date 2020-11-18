@@ -1,8 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <getopt.h>
+#include "getopt.h"// #include <getopt.h>
 #include <string>
 #include <cstring>
+
+#include <algorithm>
 
 #include "CycleTimer.h"
 
@@ -22,6 +24,7 @@ void usage(const char* progname) {
     printf("  -?  --help             This message\n");
 }
 
+///balanced tree: https://chenxfeng.github.io/2017/02/28/parellel_and_distributed_computing/paralell_compute1&2/
 void cpu_exclusive_scan(int* start, int* end, int* output)
 {
 #ifdef PARALLEL
@@ -63,13 +66,13 @@ void cpu_exclusive_scan(int* start, int* end, int* output)
 
 int cpu_find_repeats(int *start, int length, int *output){
     int count = 0, idx = 0;
-    while(idx < length - 1){ 
-        if(start[idx] == start[idx + 1]){
+    while (idx < length - 1) {
+        if (start[idx] == start[idx + 1]) {
             output[count] = idx;
             count++;
-        }   
+        }
         idx++;
-    }   
+    }
     return count;
 }
 
@@ -144,9 +147,9 @@ int main(int argc, char** argv)
         // run CUDA implementation
         for (int i=0; i<3; i++) {
             if (useThrust)
-                cudaTime = std::min(cudaTime, cudaScanThrust(inarray, inarray+N, resultarray));
+                cudaTime = (std::min)(cudaTime, cudaScanThrust(inarray, inarray+N, resultarray));
             else
-                cudaTime = std::min(cudaTime, cudaScan(inarray, inarray+N, resultarray));
+                cudaTime = (std::min)(cudaTime, cudaScan(inarray, inarray+N, resultarray));
         }
 
         // run CPU implementation to check correctness
@@ -176,7 +179,7 @@ int main(int argc, char** argv)
         // run CUDA implementation
         int cu_size;
         for (int i=0; i<3; i++) {
-            cudaTime = std::min(cudaTime,
+            cudaTime = (std::min)(cudaTime,
                             cudaFindRepeats(inarray, N, resultarray, &cu_size));
         }
 

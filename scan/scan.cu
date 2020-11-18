@@ -28,6 +28,45 @@ static inline int nextPow2(int n)
     return n;
 }
 
+__global__ void exclusive_scan_kernel(int* start, int N, int* output) {
+    // compute overall index from position of thread in current block,
+    // and given the block we are in
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N) return ; //if (index == 0) printf("start\n");
+    // upsweep phase
+    for (int twod = 1; twod < N; twod*=2) {
+        int stride = twod*2;
+        if ((index+1-stride) % stride == 0) output[index] += output[index-stride+twod];
+        // parallel
+        // for (int i = 0; i < N; i += twod1) 0 twod1 2*twod1 ...
+        // {
+        //     output[i+twod1-1] += output[i+twod-1];
+        // }
+    }
+    if (index == N-1) output[index] = 0;
+    // downsweep phase
+    for (int twod = N/2; twod >= 1; twod /= 2) {
+        int stride = twod*2;
+        if ((index+1-stride) % stride == 0) { //printf("%d %d\n", index, output[index]);
+            int tmp = output[index-stride+twod];
+            output[index-stride+twod] = output[index];
+            output[index] += tmp;
+        }
+        // parallel
+        // for (int i = 0; i < N; i += twod1) 0 twod1 2*twod1 ...
+        // {
+        //     int tmp = output[i+twod-1];
+        //     output[i+twod-1] = output[i+twod1-1];
+        //     output[i+twod1-1] += tmp;
+        // }
+    }
+    if (index == 0) {
+        output[0] = 0;
+        for (int i = 0; i < N; ++i)
+            output[i] = output[i-1] + start[i-1];
+    }
+}
+
 void exclusive_scan(int* device_start, int length, int* device_result)
 {
     /* Fill in this function with your exclusive scan implementation.
@@ -39,6 +78,9 @@ void exclusive_scan(int* device_start, int length, int* device_result)
      * both the input and the output arrays are sized to accommodate the next
      * power of 2 larger than the input.
      */
+    int threadsPerBlock = 512;
+    int blocks = (length + threadsPerBlock - 1) / threadsPerBlock;
+    exclusive_scan_kernel<<<blocks, threadsPerBlock>>>(device_start, length, device_result);
 }
 
 /* This function is a wrapper around the code you will write - it copies the
