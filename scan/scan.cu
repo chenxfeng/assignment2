@@ -9,6 +9,8 @@
 #include <thrust/device_malloc.h>
 #include <thrust/device_free.h>
 
+#include <algorithm>
+
 #include "CycleTimer.h"
 
 extern float toBW(int bytes, float sec);
@@ -155,6 +157,18 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
     return overallDuration;
 }
 
+__global__ void find_repeats_kernel(int* start, int N, int* output, int* counter) {
+    // compute overall index from position of thread in current block,
+    // and given the block we are in
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= N - 1) return ;
+
+    if (start[index] == start[index+1]) {
+        int tc = atomicAdd(counter, 1);
+        output[tc] = index;
+    }
+}
+
 int find_repeats(int *device_input, int length, int *device_output) {
     /* Finds all pairs of adjacent repeated elements in the list, storing the
      * indices of the first element of each pair (in order) into device_result.
@@ -166,8 +180,19 @@ int find_repeats(int *device_input, int length, int *device_output) {
      * of 2 in size, so you can use your exclusive_scan function with them if 
      * it requires that. However, you must ensure that the results of
      * find_repeats are correct given the original length.
-     */    
-    return 0;
+     */
+    int threadsPerBlock = 512;
+    int blocks = (length + threadsPerBlock - 1) / threadsPerBlock;
+    // ///compute exclusive_scan
+    // exclusive_scan_kernel<<<blocks, threadsPerBlock>>>(device_start, length, device_result);
+    int* counter;
+    cudaMalloc((void**)&counter, sizeof(int));
+    ///find_repeat
+    find_repeats_kernel<<<blocks, threadsPerBlock>>>(device_input, length, device_output, counter);
+    int c;
+    cudaMemcpy(&c, counter, sizeof(int), cudaMemcpyDeviceToHost);
+
+    return c;
 }
 
 /* Timing wrapper around find_repeats. You should not modify this function.
@@ -192,7 +217,7 @@ double cudaFindRepeats(int *input, int length, int *output, int *output_length) 
 
     cudaMemcpy(output, device_output, length * sizeof(int),
                cudaMemcpyDeviceToHost);
-
+std::sort(output, output + result);
     cudaFree(device_input);
     cudaFree(device_output);
 

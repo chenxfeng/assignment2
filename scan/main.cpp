@@ -136,7 +136,7 @@ int main(int argc, char** argv)
         for(int i = 0; i < N; i++) {
             inarray[i] = 1;
             checkarray[i] = 1;
-        }  
+        }
     }
 
     printCudaInfo();
