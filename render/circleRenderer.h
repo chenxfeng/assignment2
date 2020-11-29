@@ -12,7 +12,7 @@ typedef enum {
     CIRCLE_RGBY,
     CIRCLE_TEST_10K,
     CIRCLE_TEST_100K,
-    PATTERN,
+    myPATTERN,///PATTERN,///conflict with win10 file
     SNOWFLAKES,
     FIREWORKS, 
     HYPNOSIS, 

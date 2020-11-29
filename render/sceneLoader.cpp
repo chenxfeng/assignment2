@@ -490,7 +490,7 @@ loadCircleScene(
 
         generateRandomCircles(numCircles, position, velocity, color, radius);
 
-    } else if (sceneName == PATTERN) {
+    } else if (sceneName == myPATTERN/*PATTERN*/) {
 
         int circleCount1 = 16;
         int circleCount2 = 31;

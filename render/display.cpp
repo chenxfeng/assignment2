@@ -45,8 +45,8 @@ handleDisplay() {
 
     const Image* img = gDisplay.renderer->getImage();
 
-    int width = std::min(img->width, gDisplay.width);
-    int height = std::min(img->height, gDisplay.height);
+    int width = (std::min)(img->width, gDisplay.width);
+    int height = (std::min)(img->height, gDisplay.height);
 
     glDisable(GL_DEPTH_TEST);
     glClearColor(0.f, 0.f, 0.f, 1.f);

@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <getopt.h>
+#include "getopt.h"// #include <getopt.h>
 #include <string>
 
 #include "refRenderer.h"
@@ -107,7 +107,7 @@ int main(int argc, char** argv)
     } else if (sceneNameStr.compare("rand100k") == 0) {
         sceneName = CIRCLE_TEST_100K;
     } else if (sceneNameStr.compare("pattern") == 0) {
-        sceneName = PATTERN;
+        sceneName = myPATTERN;///PATTERN;
     } else if (sceneNameStr.compare("biglittle") == 0) {
         sceneName = BIG_LITTLE;
     } else if (sceneNameStr.compare("littlebig") == 0) {

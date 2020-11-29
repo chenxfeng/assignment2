@@ -14,8 +14,8 @@ LOGS	   := logs
 
 ARCH=$(shell uname | sed -e 's/-.*//g')
 OBJDIR=objs
-CXX=g++ -m64
-CXXFLAGS=-O3 -Wall -g
+CXX=nvcc -m64 -w
+CXXFLAGS=-O3 -g -I"D:\Program Files (x86)\NVIDIA Corporation\CUDA\common\inc"
 HOSTNAME=$(shell hostname)
 
 LIBS       :=
@@ -23,23 +23,19 @@ FRAMEWORKS :=
 
 #TODO switch to 61 and update ref
 NVCCFLAGS=-O3 -m64 --gpu-architecture compute_35
-LIBS += GL glut cudart
+LIBS += freeglut glew64 cudart
 
-ifneq ($(wildcard /opt/cuda-8.0/.*),)
-# Latedays
-LDFLAGS=-L/opt/cuda-8.0/lib64/ -lcudart
-else
-# GHC
-LDFLAGS=-L/usr/local/depot/cuda-8.0/lib64/ -lcudart
-endif
+LDFLAGS=-L"D://Program Files (x86)//NVIDIA GPU Computing//lib//x64" -lcudart \
+	-L"D:\Program Files (x86)\NVIDIA Corporation\CUDA\common\lib\x64"
 
 LDLIBS  := $(addprefix -l, $(LIBS))
 LDFRAMEWORKS := $(addprefix -framework , $(FRAMEWORKS))
 
-NVCC=nvcc
+NVCC=nvcc -w
 
-OBJS=$(OBJDIR)/main.o $(OBJDIR)/display.o $(OBJDIR)/benchmark.o $(OBJDIR)/refRenderer.o \
-     $(OBJDIR)/cudaRenderer.o $(OBJDIR)/noise.o $(OBJDIR)/ppm.o $(OBJDIR)/sceneLoader.o
+OBJS=$(OBJDIR)/main.obj $(OBJDIR)/display.obj $(OBJDIR)/benchmark.obj $(OBJDIR)/refRenderer.obj \
+     $(OBJDIR)/cudaRenderer.obj $(OBJDIR)/noise.obj $(OBJDIR)/ppm.obj $(OBJDIR)/sceneLoader.obj \
+     $(OBJDIR)/getopt.obj $(OBJDIR)/getopt1.obj
 
 
 .PHONY: dirs clean
@@ -47,10 +43,11 @@ OBJS=$(OBJDIR)/main.o $(OBJDIR)/display.o $(OBJDIR)/benchmark.o $(OBJDIR)/refRen
 default: $(EXECUTABLE)
 
 dirs:
-		mkdir -p $(OBJDIR)/
+		mkdir $(OBJDIR)
 
 clean:
-		rm -rf $(OBJDIR) *~ $(EXECUTABLE) $(LOGS)
+		del /Q $(EXECUTABLE).exe $(LOGS)
+		rmdir /Q /S $(OBJDIR)
 
 check:	default
 		./checker.pl
@@ -58,8 +55,11 @@ check:	default
 $(EXECUTABLE): dirs $(OBJS)
 		$(CXX) $(CXXFLAGS) -o $@ $(OBJS) $(LDFLAGS) $(LDLIBS) $(LDFRAMEWORKS)
 
-$(OBJDIR)/%.o: %.cpp
+$(OBJDIR)/%.obj: %.cpp
 		$(CXX) $< $(CXXFLAGS) -c -o $@
 
-$(OBJDIR)/%.o: %.cu
+$(OBJDIR)/%.obj: %.cu
 		$(NVCC) $< $(NVCCFLAGS) -c -o $@
+
+$(OBJDIR)/%.obj: %.c
+		$(CXX) $< $(CXXFLAGS) -c -o $@
