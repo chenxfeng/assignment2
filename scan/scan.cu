@@ -30,42 +30,95 @@ static inline int nextPow2(int n)
     return n;
 }
 
-__global__ void exclusive_scan_kernel(int* start, int N, int* output) {
+///correct only when N <= 512(threadsPerBlock)
+__global__ void exclusive_scan_kernel(int* start, int N, int* output, int P2) {
     // compute overall index from position of thread in current block,
     // and given the block we are in
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index >= N) return ; //if (index == 0) printf("start\n");
+    unsigned int block_index = blockIdx.x + blockIdx.y * gridDim.x + blockIdx.z * gridDim.x * gridDim.y;
+    unsigned int thread_index = block_index * blockDim.x * blockDim.y * blockDim.z + \
+        threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
+    unsigned int index = thread_index;//blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= P2) return ;
     // upsweep phase
-    for (int twod = 1; twod < N; twod*=2) {
+    for (int twod = 1; twod < P2; twod*=2) {
         int stride = twod*2;
-        if ((index+1-stride) % stride == 0) output[index] += output[index-stride+twod];
-        // parallel
-        // for (int i = 0; i < N; i += twod1) 0 twod1 2*twod1 ...
-        // {
-        //     output[i+twod1-1] += output[i+twod-1];
-        // }
+        if ((index+1-stride) % stride == 0)
+            output[index] += output[index-stride+twod];
+        __syncthreads();
     }
-    if (index == N-1) output[index] = 0;
+    if (index == P2 - 1) output[index] = 0;
+    __syncthreads();
     // downsweep phase
-    for (int twod = N/2; twod >= 1; twod /= 2) {
+    for (int twod = P2/2; twod >= 1; twod /= 2) {
         int stride = twod*2;
-        if ((index+1-stride) % stride == 0) { //printf("%d %d\n", index, output[index]);
+        if ((index+1-stride) % stride == 0) {
             int tmp = output[index-stride+twod];
             output[index-stride+twod] = output[index];
             output[index] += tmp;
         }
-        // parallel
-        // for (int i = 0; i < N; i += twod1) 0 twod1 2*twod1 ...
-        // {
-        //     int tmp = output[i+twod-1];
-        //     output[i+twod-1] = output[i+twod1-1];
-        //     output[i+twod1-1] += tmp;
-        // }
+        __syncthreads();
     }
-    if (index == 0) {
-        output[0] = 0;
-        for (int i = 0; i < N; ++i)
-            output[i] = output[i-1] + start[i-1];
+}
+
+__global__ void exclusive_scan_upsweep(int* start, int N, int* output) {
+    // compute overall index from position of thread in current block, and given the block we are in
+    unsigned int block_index = blockIdx.x;
+    unsigned int thread_index = block_index * blockDim.x + threadIdx.x;
+    unsigned int index = thread_index;
+    unsigned int P2 = 512;///blockDim.x: #threads per block
+    if (index >= N) return ;
+    ///synchronize all threads in block between every step 
+    for (int twod = 1; twod < P2; twod*=2) {
+        int stride = twod*2;
+        if ((index+1-stride - block_index*P2) % stride == 0)
+            output[index] += output[index-stride+twod];
+        __syncthreads();
+    }
+    if (index == N-1) output[index] = 0;
+    __syncthreads();
+}
+
+__global__ void exclusive_scan_merge(int* start, int N, int* output) {
+    unsigned int P2 = 512;///blockDim.x: #threads per block
+    unsigned int thread_index = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int index = (thread_index+1)*P2 - 1;
+    if (index >= N) return ;
+    ///merge last elements from all blocks
+    for (int twod = P2; twod < N; twod*=2) {
+        int stride = twod*2;
+        if ((index+1-stride) % stride == 0)
+            output[index] += output[index-stride+twod];
+        __syncthreads();
+    }
+    if (index == N-1) output[index] = 0;
+    __syncthreads();
+    ///exchange last elements from all blocks
+    for (int twod = N/2; twod >= P2; twod /= 2) {
+        int stride = twod*2;
+        if ((index+1-stride) % stride == 0) {
+            int tmp = output[index-stride+twod];
+            output[index-stride+twod] = output[index];
+            output[index] += tmp;
+        }
+        __syncthreads();
+    }
+}
+
+__global__ void exclusive_scan_downsweep(int* start, int N, int* output) {
+    unsigned int block_index = blockIdx.x;
+    unsigned int thread_index = block_index * blockDim.x + threadIdx.x;
+    unsigned int index = thread_index;
+    unsigned int P2 = 512;///blockDim.x: #threads per block
+    if (index >= N) return ;
+    ///downsweep within every block
+    for (int twod = P2/2; twod >= 1; twod /= 2) {
+        int stride = twod*2;
+        if ((index+1-stride - block_index*P2) % stride == 0) {
+            int tmp = output[index-stride+twod];
+            output[index-stride+twod] = output[index];
+            output[index] += tmp;
+        }
+        __syncthreads();
     }
 }
 
@@ -81,8 +134,19 @@ void exclusive_scan(int* device_start, int length, int* device_result)
      * power of 2 larger than the input.
      */
     int threadsPerBlock = 512;
-    int blocks = (length + threadsPerBlock - 1) / threadsPerBlock;
-    exclusive_scan_kernel<<<blocks, threadsPerBlock>>>(device_start, length, device_result);
+    int nextP2 = nextPow2(length);
+    int blocksPerGrid = (nextP2 + threadsPerBlock - 1) / threadsPerBlock;
+    if (length <= threadsPerBlock) {
+        exclusive_scan_kernel<<<blocksPerGrid, threadsPerBlock>>>(device_start, length, device_result, nextP2);
+    } else {
+        ///upsweep phase : no problem to parallelize all blocks in a grid
+        exclusive_scan_upsweep<<<blocksPerGrid, threadsPerBlock>>>(device_start, nextP2, device_result);
+        ///merge phase
+        assert(blocksPerGrid <= threadsPerBlock);///512*512 = 110080
+        exclusive_scan_merge<<<1, blocksPerGrid>>>(device_start, nextP2, device_result);
+        ///downsweep phase
+        exclusive_scan_downsweep<<<blocksPerGrid, threadsPerBlock>>>(device_start, nextP2, device_result);
+    }
 }
 
 /* This function is a wrapper around the code you will write - it copies the
@@ -124,6 +188,8 @@ double cudaScan(int* inarray, int* end, int* resultarray)
     
     cudaMemcpy(resultarray, device_result, (end - inarray) * sizeof(int),
                cudaMemcpyDeviceToHost);
+// for (int i = 0; i < end - inarray; ++i) printf("%d ", resultarray[i]);
+// printf("\n");
     return overallDuration;
 }
 
