@@ -443,7 +443,12 @@ __global__ void kernelRenderPixel() {
     float2 pixelCenter = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
                                          invHeight * (static_cast<float>(imageY) + 0.5f));
 
+    // global memory read
     float4* imagePtr = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * width + imageX)]);
+    float4 existingColor = *imagePtr;
+    float4 newColor;
+    float3 rgb;
+    float alpha;
 
     for (int cIndex=0; cIndex < cuConstRendererParams.numCircles; ++cIndex) {
         
@@ -460,9 +465,6 @@ __global__ void kernelRenderPixel() {
         // circle does not contribute to the image
         if (pixelDist > maxDist)
             continue;
-
-        float3 rgb;
-        float alpha;
 
         // there is a non-zero contribution.  Now compute the shading value
         if (cuConstRendererParams.sceneName == SNOWFLAKES || cuConstRendererParams.sceneName == SNOWFLAKES_SINGLE_FRAME) {
@@ -481,20 +483,15 @@ __global__ void kernelRenderPixel() {
             rgb = *(float3*)&(cuConstRendererParams.color[index3]);
             alpha = .5f;
         }
-
         float oneMinusAlpha = 1.f - alpha;
-
-        // global memory read
-        float4 existingColor = *imagePtr;
-        float4 newColor;
         newColor.x = alpha * rgb.x + oneMinusAlpha * existingColor.x;
         newColor.y = alpha * rgb.y + oneMinusAlpha * existingColor.y;
         newColor.z = alpha * rgb.z + oneMinusAlpha * existingColor.z;
         newColor.w = alpha + existingColor.w;
-
-        // global memory write
-        *imagePtr = newColor;
+        existingColor = newColor;
     }
+    // global memory write
+    *imagePtr = newColor;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////
