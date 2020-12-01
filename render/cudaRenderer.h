@@ -27,6 +27,9 @@ private:
     float* cudaDeviceRadius;
     float* cudaDeviceImageData;
 
+    ///my: add for circles dependency
+    int* cudaDeviceDepend;
+
 public:
 
     CudaRenderer();

@@ -28,6 +28,9 @@ struct GlobalConstants {
     float* color;
     float* radius;
 
+    ///my: add for circles dependency
+    int* depend;
+
     int imageWidth;
     int imageHeight;
     float* imageData;
@@ -262,7 +265,7 @@ __global__ void kernelAdvanceSnowflake() {
     // illusion of parallax
     float forceScaling = fmin(fmax(1.f - position.z, .1f), 1.f); // clamp
 
-    // add some noise to the motion to make the snow flutter
+    // my: add some noise to the motion to make the snow flutter
     float3 noiseInput;
     noiseInput.x = 10.f * position.x;
     noiseInput.y = 10.f * position.y;
@@ -494,6 +497,136 @@ __global__ void kernelRenderPixel() {
     *imagePtr = newColor;
 }
 
+#include "circleBoxTest.cu_inl"
+
+///idea-of-impl 2 : analyse the dependency between circles
+///circles may depend on previous any circle and record the last one
+__global__ void kernelAnalyseCircles() {
+
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= cuConstRendererParams.numCircles)
+        return;
+
+    ///initialize the dependency of this circle: no depend
+    cuConstRendererParams.depend[index] = -1;
+
+    int index3 = 3 * index;
+
+    // read position and radius
+    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+    float  rad = cuConstRendererParams.radius[index];
+
+    // compute the bounding box of the circle. The bound is in integer
+    // screen coordinates, so it's clamped to the edges of the screen.
+    short imageWidth = cuConstRendererParams.imageWidth;
+    short imageHeight = cuConstRendererParams.imageHeight;
+
+    short minX = static_cast<short>(imageWidth * (p.x - rad));
+    short maxX = static_cast<short>(imageWidth * (p.x + rad)) + 1;
+    short minY = static_cast<short>(imageHeight * (p.y - rad));
+    short maxY = static_cast<short>(imageHeight * (p.y + rad)) + 1;
+    // a bunch of clamps.  Is there a CUDA built-in for this?
+    short screenMinX = (minX > 0) ? ((minX < imageWidth) ? minX : imageWidth) : 0;
+    short screenMaxX = (maxX > 0) ? ((maxX < imageWidth) ? maxX : imageWidth) : 0;
+    short screenMinY = (minY > 0) ? ((minY < imageHeight) ? minY : imageHeight) : 0;
+    short screenMaxY = (maxY > 0) ? ((maxY < imageHeight) ? maxY : imageHeight) : 0;
+    float invWidth = 1.f / imageWidth;
+    float invHeight = 1.f / imageHeight;
+    // float minX = p.x - rad;//  -0.5/imageWidth;
+    // minX = (minX > 0) ? ((minX < 1.0) ? minX : 1.0) : 0;
+    // float maxX = p.x + rad;//  +0.5/imageWidth;
+    // maxX = (maxX > 0) ? ((maxX < 1.0) ? maxX : 1.0) : 0;
+    // float minY = p.y - rad;//  -0.5/imageHeight;
+    // minY = (minY > 0) ? ((minY < 1.0) ? minY : 1.0) : 0;
+    // float maxY = p.y + rad;//  +0.5/imageHeight;
+    // maxY = (maxY > 0) ? ((maxY < 1.0) ? maxY : 1.0) : 0;
+
+    for (int cIndex=index-1; cIndex >= 0; --cIndex) {
+        
+        int cindex3 = 3 * cIndex;
+        // read position and radius
+        float3 cindex_p = *(float3*)(&cuConstRendererParams.position[cindex3]);
+        float  cindex_rad = cuConstRendererParams.radius[cIndex];
+        if (circleInBox(cindex_p.x, cindex_p.y, cindex_rad, 
+            screenMinX*invWidth, screenMaxX*invWidth, screenMaxY*invHeight, screenMinY*invHeight)) {
+            // printf("%d found depend on %d\n", index, cIndex);
+            cuConstRendererParams.depend[index] = cIndex;
+            break;
+        }
+        // float distX = cindex_p.x - p.x;
+        // float distY = cindex_p.y - p.y;
+        // float circleRadius = rad + cindex_rad;
+        // if ( ((distX*distX) + (distY*distY)) <= (circleRadius*circleRadius) ) {
+        //     cuConstRendererParams.depend[index] = cIndex;
+        //     break;
+        // }
+        // if (circleInBox(cindex_p.x, cindex_p.y, cindex_rad, 
+        //     minX, maxX, maxY, minY)) {
+        //     cuConstRendererParams.depend[index] = cIndex;
+        //     break;
+        // }
+    }
+}
+
+///idea-of-impl 2 : render circles considering their dependency
+///circles would not be rendered until their dependency had been rendered
+__global__ void kernelRenderCirclesWithDepend() {
+
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (index >= cuConstRendererParams.numCircles)
+        return;
+
+    int index3 = 3 * index;
+
+    // read position and radius
+    float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+    float  rad = cuConstRendererParams.radius[index];
+
+    // compute the bounding box of the circle. The bound is in integer
+    // screen coordinates, so it's clamped to the edges of the screen.
+    short imageWidth = cuConstRendererParams.imageWidth;
+    short imageHeight = cuConstRendererParams.imageHeight;
+    short minX = static_cast<short>(imageWidth * (p.x - rad));
+    short maxX = static_cast<short>(imageWidth * (p.x + rad)) + 1;
+    short minY = static_cast<short>(imageHeight * (p.y - rad));
+    short maxY = static_cast<short>(imageHeight * (p.y + rad)) + 1;
+
+    // a bunch of clamps.  Is there a CUDA built-in for this?
+    short screenMinX = (minX > 0) ? ((minX < imageWidth) ? minX : imageWidth) : 0;
+    short screenMaxX = (maxX > 0) ? ((maxX < imageWidth) ? maxX : imageWidth) : 0;
+    short screenMinY = (minY > 0) ? ((minY < imageHeight) ? minY : imageHeight) : 0;
+    short screenMaxY = (maxY > 0) ? ((maxY < imageHeight) ? maxY : imageHeight) : 0;
+
+    float invWidth = 1.f / imageWidth;
+    float invHeight = 1.f / imageHeight;
+
+    while (true) {
+        if (cuConstRendererParams.depend[index] == -2) {
+            // printf("finished %d\n", index);
+            return ;
+        } else if (cuConstRendererParams.depend[index] == -1) {
+            // for all pixels in the bonding box
+            for (int pixelY=screenMinY; pixelY<screenMaxY; pixelY++) {
+                float4* imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (pixelY * imageWidth + screenMinX)]);
+                for (int pixelX=screenMinX; pixelX<screenMaxX; pixelX++) {
+                    float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(pixelX) + 0.5f),
+                                                         invHeight * (static_cast<float>(pixelY) + 0.5f));
+                    shadePixel(index, pixelCenterNorm, p, imgPtr);
+                    imgPtr++;
+                }
+            }
+            ///unlock dependency
+            cuConstRendererParams.depend[index] = -2;
+        } else {
+            if (cuConstRendererParams.depend[cuConstRendererParams.depend[index]] == -2
+                || cuConstRendererParams.depend[cuConstRendererParams.depend[index]] == -1)
+                cuConstRendererParams.depend[index] = -1;
+        }
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -511,6 +644,9 @@ CudaRenderer::CudaRenderer() {
     cudaDeviceColor = NULL;
     cudaDeviceRadius = NULL;
     cudaDeviceImageData = NULL;
+
+    ///my: add for circles dependency
+    cudaDeviceDepend = NULL;
 }
 
 CudaRenderer::~CudaRenderer() {
@@ -532,6 +668,9 @@ CudaRenderer::~CudaRenderer() {
         cudaFree(cudaDeviceColor);
         cudaFree(cudaDeviceRadius);
         cudaFree(cudaDeviceImageData);
+
+        ///my: add for circles dependency
+        cudaFree(cudaDeviceDepend);
     }
 }
 
@@ -593,6 +732,9 @@ CudaRenderer::setup() {
     cudaMalloc(&cudaDeviceRadius, sizeof(float) * numCircles);
     cudaMalloc(&cudaDeviceImageData, sizeof(float) * 4 * image->width * image->height);
 
+    ///my: add for circles dependency
+    cudaMalloc(&cudaDeviceDepend, sizeof(int) * numCircles);
+
     cudaMemcpy(cudaDevicePosition, position, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
     cudaMemcpy(cudaDeviceVelocity, velocity, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
     cudaMemcpy(cudaDeviceColor, color, sizeof(float) * 3 * numCircles, cudaMemcpyHostToDevice);
@@ -616,6 +758,9 @@ CudaRenderer::setup() {
     params.color = cudaDeviceColor;
     params.radius = cudaDeviceRadius;
     params.imageData = cudaDeviceImageData;
+
+    ///my: add for circles dependency
+    params.depend = cudaDeviceDepend;
 
     cudaMemcpyToSymbol(cuConstRendererParams, &params, sizeof(GlobalConstants));
 
@@ -705,12 +850,22 @@ void
 CudaRenderer::render() {
 
     // 256 threads per block is a healthy number
-    dim3 blockDim(16, 16, 1);
-    dim3 gridDim(
-        (image->width + blockDim.x - 1) / blockDim.x,
-        (image->height + blockDim.y - 1) / blockDim.y);
-    kernelRenderPixel<<<gridDim, blockDim>>>();
+    dim3 blockDim(256, 1);
+    dim3 gridDim((numCircles + blockDim.x - 1) / blockDim.x);
+    ///analyse the dependency
+    kernelAnalyseCircles<<<gridDim, blockDim>>>();
     cudaDeviceSynchronize();
+    ///render circles 
+    kernelRenderCirclesWithDepend<<<gridDim, blockDim>>>();
+    cudaDeviceSynchronize();
+
+    // // 256 threads per block is a healthy number
+    // dim3 blockDim(16, 16, 1);
+    // dim3 gridDim(
+    //     (image->width + blockDim.x - 1) / blockDim.x,
+    //     (image->height + blockDim.y - 1) / blockDim.y);
+    // kernelRenderPixel<<<gridDim, blockDim>>>();
+    // cudaDeviceSynchronize();
 
     // // 256 threads per block is a healthy number
     // dim3 blockDim(256, 1);
